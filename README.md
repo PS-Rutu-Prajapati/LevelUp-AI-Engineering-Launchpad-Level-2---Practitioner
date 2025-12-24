@@ -5,7 +5,7 @@ An AI-powered assistant project that demonstrates the use of the Model Context P
 ## 📋 Overview
 
 This project implements a **weekend helper AI assistant** that:
-- Uses the **Groq API** with Llama 3.1 8B model for intelligent responses
+- Uses the **Groq API** with model identifiers `llama-3.1-8b-instant` (main reasoning) and `llama-3.3-70b-versatile` (reflection checks)
 - Implements the **Model Context Protocol (MCP)** for tool integration
 - Provides tools for weather information, book recommendations, and jokes
 - Demonstrates ReAct (Reasoning + Acting) decision-making pattern
@@ -23,7 +23,7 @@ This project implements a **weekend helper AI assistant** that:
 ### Key Components
 
 **`agent_fun.py`** - The AI Agent Client
-- Connects to the Groq API using the Llama 3.1 8B model
+- Connects to the Groq API using model `llama-3.1-8b-instant` for main reasoning and `llama-3.3-70b-versatile` for reflection checks
 - Implements a ReAct pattern for step-by-step reasoning
 - Manages MCP client sessions for tool access
 - Requires `GROQ_API_KEY` environment variable
