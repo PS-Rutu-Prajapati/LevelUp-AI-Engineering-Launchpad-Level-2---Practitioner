@@ -19,12 +19,22 @@ if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY not found in .env file or environment variables")
  
 SYSTEM = (
-    "You are a cheerful weekend helper. You can call MCP tools.\n"
-    "Decide step-by-step (ReAct). If you need a tool, output ONLY JSON:\n"
-    '{"action":"tool_name","args":{...}}\n'
-    "If you can answer, output ONLY JSON:\n"
+    "You are a helpful assistant with access to tools.\n"
+    "When using a tool, output ONLY JSON:\n"
+    '{"action":"<tool_name>","args":{...}}\n\n'
+    "Available tools:\n"
+    "- get_weather(latitude: float, longitude: float)\n"
+    "- city_to_coords(city: str)\n"
+    "- book_recs(topic: str, limit: int)\n"
+    "- random_joke()\n"
+    "- random_dog()\n"
+    "- trivia()\n\n"
+    "For weather questions, ALWAYS use get_weather.\n"
+    "When answering finally, output ONLY:\n"
     '{"action":"final","answer":"..."}'
 )
+
+
  
 def llm_json(messages: List[Dict[str, str]]) -> Dict[str, Any]:
     """Call Groq API with Llama 3.3 70B model"""
@@ -137,7 +147,7 @@ async def main():
                 break
             history.append({"role": "user", "content": user})
  
-            for _ in range(6):  # Increased safety loop for more complex reasoning
+            for _ in range(3):  # Increased safety loop for more complex reasoning
                 decision = llm_json(history)
                
                 # Debug: print decision
@@ -145,6 +155,44 @@ async def main():
                
                 if decision.get("action") == "final":
                     answer = decision.get("answer", "")
+
+                    # Prefer structured tool-derived answers when available
+                    # Look back through history for recent tool outputs encoded as JSON
+                    for h in reversed(history):
+                        content = h.get("content")
+                        if not isinstance(content, str):
+                            continue
+                        try:
+                            obj = json.loads(content)
+                        except Exception:
+                            continue
+
+                        if isinstance(obj, dict) and obj.get("tool") == "trivia":
+                            res = obj.get("result")
+                            # result might already be a dict or a JSON string
+                            if isinstance(res, dict) and res.get("correct"):
+                                answer = res.get("correct")
+                                break
+                            if isinstance(res, str):
+                                try:
+                                    parsed = json.loads(res)
+                                    if isinstance(parsed, dict) and parsed.get("correct"):
+                                        answer = parsed.get("correct")
+                                        break
+                                except Exception:
+                                    pass
+
+                        if isinstance(obj, dict) and obj.get("tool") == "get_weather":
+                            res = obj.get("result")
+                            if isinstance(res, dict):
+                                # Prefer explicit temperature fields if present
+                                if "temperature" in res:
+                                    answer = f"The current temperature at ({res.get('latitude','?')}, {res.get('longitude','?')}) is {res['temperature']}"
+                                    break
+                                if "temperature_2m" in res:
+                                    answer = f"The current temperature is {res['temperature_2m']} °C"
+                                    break
+
                     # One-shot reflection
                     reflection_result = reflect_with_groq(answer)
                     if reflection_result.lower() != "looks good":
@@ -167,7 +215,11 @@ async def main():
                 try:
                     result = await session.call_tool(tname, args)
                     payload = result.content[0].text if result.content else json.dumps(result.model_dump())
-                    tool_response = f"[tool:{tname}] {payload}"
+                    tool_response = json.dumps({
+    "tool": tname,
+    "result": result.content[0].text if result.content else result.model_dump()
+})
+
                     print(f"\n[Tool called: {tname}]")
                     history.append({"role": "assistant", "content": tool_response})
                 except Exception as e:
