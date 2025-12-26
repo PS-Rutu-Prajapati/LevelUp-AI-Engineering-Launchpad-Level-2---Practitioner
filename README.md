@@ -5,7 +5,7 @@ An AI-powered assistant project that demonstrates the use of the Model Context P
 ## 📋 Overview
 
 This project implements a **weekend helper AI assistant** that:
-- Uses the **Groq API** with `llama-3.3-70b-versatile` model for intelligent reasoning
+- Uses the **Groq API** with model identifiers `llama-3.1-8b-instant` (main reasoning) and `llama-3.3-70b-versatile` (reflection checks)
 - Implements the **Model Context Protocol (MCP)** for tool integration
 - Provides 6 tools for weather, books, jokes, dogs, city coordinates, and trivia
 - Intelligently decides which tools to call based on user queries
