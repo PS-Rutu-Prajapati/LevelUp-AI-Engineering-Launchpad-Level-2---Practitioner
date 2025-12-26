@@ -5,10 +5,11 @@ An AI-powered assistant project that demonstrates the use of the Model Context P
 ## 📋 Overview
 
 This project implements a **weekend helper AI assistant** that:
-- Uses the **Groq API** with Llama 3.1 8B model for intelligent responses
+- Uses the **Groq API** with `llama-3.3-70b-versatile` model for intelligent reasoning
 - Implements the **Model Context Protocol (MCP)** for tool integration
-- Provides tools for weather information, book recommendations, and jokes
-- Demonstrates ReAct (Reasoning + Acting) decision-making pattern
+- Provides 6 tools for weather, books, jokes, dogs, city coordinates, and trivia
+- Intelligently decides which tools to call based on user queries
+- Handles both single and multiple tool calls seamlessly
 
 ## 🎯 Project Structure
 
@@ -22,16 +23,18 @@ This project implements a **weekend helper AI assistant** that:
 
 ### Key Components
 
-**`agent_fun.py`** - The AI Agent Client
-- Connects to the Groq API using the Llama 3.1 8B model
-- Implements a ReAct pattern for step-by-step reasoning
-- Manages MCP client sessions for tool access
-- Requires `GROQ_API_KEY` environment variable
+- **`agent_fun.py`** - The AI Agent Client
+  - Connects to Groq API using `llama-3.3-70b-versatile` model
+  - Intelligently decides which tools to call (single or multiple)
+  - Executes tools and synthesizes results into natural language responses
 
 **`server_fun.py`** - The MCP Server with Tools
-- **`get_weather()`** - Fetches current weather data via Open-Meteo API
-- **`book_recs()`** - Suggests books based on topics via Open Library API
-- **`random_joke()`** - Returns a clean, single-line joke via JokeAPI
+- **`get_weather(latitude, longitude)`** — Current weather data via Open-Meteo API (temperature, wind speed, weather code)
+- **`book_recs(topic, limit=5)`** — Book suggestions from a topic via Open Library API
+- **`random_joke()`** — Clean, safe single-line jokes via JokeAPI
+- **`random_dog()`** — Random dog breed image URLs via Dog CEO API
+- **`city_to_coords(city)`** — Resolve city names to geographic coordinates via Open-Meteo Geocoding API
+- **`trivia()`** — Multiple-choice trivia questions via Open Trivia Database (unescapes HTML entities)
 
 ## 🚀 Getting Started
 
@@ -67,42 +70,14 @@ This project implements a **weekend helper AI assistant** that:
    GROQ_API_KEY=your_groq_api_key_here
    ```
 
-### Running the Project
+5. **Run the agent**
+    ```bash
+    python agent_fun.py
+    ```
 
-```bash
-python agent_fun.py
-```
-
-The agent will start and be ready to help with queries about:
-- Current weather conditions at specific locations
-- Book recommendations on various topics
-- Funny jokes
-
-## 📦 Dependencies
-
-Key packages used in this project:
-
-| Package | Purpose |
-|---------|---------|
-| `mcp` | Model Context Protocol implementation |
-| `groq` / `requests` | API communication |
-| `python-dotenv` | Environment variable management |
-| `httpx` | Async HTTP client |
-| `jsonschema` | JSON validation |
-| `ollama` | Integration with Ollama models (optional) |
-
-See [requirements.txt](requirements.txt) for the complete list.
-
-## 🔧 How It Works
-
-1. **User Query** → Agent receives a question
-2. **Reasoning** → Agent decides if it needs to use tools
-3. **Tool Execution** → MCP client calls available tools (weather, books, jokes)
-4. **Response** → Agent formulates a helpful answer
-5. **Output** → Returns JSON response to the user
-
-## Try these prompts
-
-1. Plan a cozy Saturday in New York at (40.7128, -74.0060). Include the current weather, 2 book ideas about mystery, one joke, and a dog pic.
-2. What’s the temperature now at (37.7749, -122.4194)? Keep it brief.
-3. Give me one trivia question.
+Usage notes
+- At the prompt type natural queries. For example:
+  - "What is the temperature at (37.7749, -122.4194)?"
+  - "Give me one trivia question."
+  - Plan a cozy Saturday in New York at (40.7128, -74.0060). Include the current weather, 2 book ideas about mystery, one joke, and a dog pic.
+- The agent will decide whether to call a tool. Tool calls are logged as `[Tool called: <name>]` and the tool response is stored in the conversation history as JSON.

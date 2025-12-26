@@ -1,3 +1,4 @@
+# agent_fun.py
 import asyncio
 import json
 import sys
@@ -19,22 +20,17 @@ if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY not found in .env file or environment variables")
  
 SYSTEM = (
-    "You are a helpful assistant with access to tools.\n"
-    "When using a tool, output ONLY JSON:\n"
-    '{"action":"<tool_name>","args":{...}}\n\n'
-    "Available tools:\n"
-    "- get_weather(latitude: float, longitude: float)\n"
-    "- city_to_coords(city: str)\n"
-    "- book_recs(topic: str, limit: int)\n"
-    "- random_joke()\n"
-    "- random_dog()\n"
-    "- trivia()\n\n"
-    "For weather questions, ALWAYS use get_weather.\n"
-    "When answering finally, output ONLY:\n"
-    '{"action":"final","answer":"..."}'
+    "You are a cheerful weekend helper. You can call MCP tools.\n"
+    "Available tools: get_weather, book_recs, random_joke, random_dog, city_to_coords, trivia\n\n"
+    "When you need a tool, output ONLY valid JSON with the real tool name and args:\n"
+    '{"action":"get_weather","args":{"latitude":40.7128,"longitude":-74.0060}}\n'
+    'or {"action":"book_recs","args":{"topic":"mystery","limit":2}}\n'
+    'or {"action":"random_joke","args":{}}\n'
+    'or {"action":"trivia","args":{"amount":1}}\n\n'
+    "When you have gathered enough info and can answer, output ONLY JSON:\n"
+    '{"action":"final","answer":"Your friendly answer summarizing what you found"}\n\n'
+    "DO NOT output 'tool_name' or '...' or {...}. Always use REAL tool names and concrete args."
 )
-
-
  
 def llm_json(messages: List[Dict[str, str]]) -> Dict[str, Any]:
     """Call Groq API with Llama 3.3 70B model"""
@@ -146,86 +142,104 @@ async def main():
             if not user or user.lower() in {"exit", "quit", "q"}:
                 break
             history.append({"role": "user", "content": user})
+            original_query = user  # Store original query for context
  
-            for _ in range(3):  # Increased safety loop for more complex reasoning
+            for loop_count in range(6):  # reasoning/tool loop
                 decision = llm_json(history)
                
                 # Debug: print decision
                 print(f"\n[DEBUG] LLM decision: {decision}")
                
-                if decision.get("action") == "final":
-                    answer = decision.get("answer", "")
-
-                    # Prefer structured tool-derived answers when available
-                    # Look back through history for recent tool outputs encoded as JSON
-                    for h in reversed(history):
-                        content = h.get("content")
-                        if not isinstance(content, str):
+                # Handle both single dict and list of dicts
+                if isinstance(decision, list):
+                    # Multiple actions: execute each one
+                    for action_obj in decision:
+                        if not isinstance(action_obj, dict):
                             continue
+                        if action_obj.get("action") == "final":
+                            answer = action_obj.get("answer", "")
+                            print(f"\nAgent: {answer}")
+                            history.append({"role": "assistant", "content": answer})
+                            break
+                        
+                        tname = action_obj.get("action")
+                        args = action_obj.get("args", {})
+                        
+                        if not tname or tname not in tool_index:
+                            print(f"[ERROR] Unknown tool '{tname}'")
+                            continue
+                        
                         try:
-                            obj = json.loads(content)
-                        except Exception:
-                            continue
-
-                        if isinstance(obj, dict) and obj.get("tool") == "trivia":
-                            res = obj.get("result")
-                            # result might already be a dict or a JSON string
-                            if isinstance(res, dict) and res.get("correct"):
-                                answer = res.get("correct")
-                                break
-                            if isinstance(res, str):
-                                try:
-                                    parsed = json.loads(res)
-                                    if isinstance(parsed, dict) and parsed.get("correct"):
-                                        answer = parsed.get("correct")
-                                        break
-                                except Exception:
-                                    pass
-
-                        if isinstance(obj, dict) and obj.get("tool") == "get_weather":
-                            res = obj.get("result")
-                            if isinstance(res, dict):
-                                # Prefer explicit temperature fields if present
-                                if "temperature" in res:
-                                    answer = f"The current temperature at ({res.get('latitude','?')}, {res.get('longitude','?')}) is {res['temperature']}"
-                                    break
-                                if "temperature_2m" in res:
-                                    answer = f"The current temperature is {res['temperature_2m']} °C"
-                                    break
-
-                    # One-shot reflection
-                    reflection_result = reflect_with_groq(answer)
-                    if reflection_result.lower() != "looks good":
-                        answer = reflection_result
-                    print(f"\nAgent: {answer}")
-                    history.append({"role": "assistant", "content": answer})
+                            result = await session.call_tool(tname, args)
+                            payload = result.content[0].text if result.content else json.dumps(result.model_dump())
+                            print(f"[Tool called: {tname}]")
+                            history.append({"role": "assistant", "content": f"[tool:{tname}] {payload}"})
+                        except Exception as e:
+                            print(f"[Tool error: {tname}] {str(e)}")
+                            history.append({"role": "assistant", "content": f"[tool error:{tname}] {str(e)}"})
+                    
+                    # After executing all tools in the list, ask the LLM for a final answer
+                    history.append({"role": "user", "content": f"Based on the tool results above, respond to the original query: '{original_query}'"})
+                    final_decision = llm_json(history)
+                    print(f"\n[DEBUG] Final LLM decision: {final_decision}")
+                    if isinstance(final_decision, dict) and final_decision.get("action") == "final":
+                        answer = final_decision.get("answer", "")
+                        print(f"\nAgent: {answer}")
+                        history.append({"role": "assistant", "content": answer})
+                    else:
+                        print(f"\nAgent: I've gathered all the information from the tools above for your cozy Saturday plan.")
+                        history.append({"role": "assistant", "content": "I've gathered all the information from the tools above for your cozy Saturday plan."})
                     break
- 
-                tname = decision.get("action")
-                args = decision.get("args", {})
-               
-                if not tname:
-                    history.append({"role": "assistant", "content": f"(no action specified in {decision})"})
-                    continue
-                   
-                if tname not in tool_index:
-                    history.append({"role": "assistant", "content": f"(unknown tool '{tname}'. Available: {list(tool_index.keys())})"})
-                    continue
- 
-                try:
-                    result = await session.call_tool(tname, args)
-                    payload = result.content[0].text if result.content else json.dumps(result.model_dump())
-                    tool_response = json.dumps({
-    "tool": tname,
-    "result": result.content[0].text if result.content else result.model_dump()
-})
+                
+                # Single dict case
+                if isinstance(decision, dict):
+                    if decision.get("action") == "final":
+                        answer = decision.get("answer", "")
+                        print(f"\nAgent: {answer}")
+                        history.append({"role": "assistant", "content": answer})
+                        break
 
-                    print(f"\n[Tool called: {tname}]")
-                    history.append({"role": "assistant", "content": tool_response})
-                except Exception as e:
-                    error_msg = f"[tool error:{tname}] {str(e)}"
-                    history.append({"role": "assistant", "content": error_msg})
-                    print(f"\n{error_msg}")
+                    # Force final answer if we've looped too many times
+                    if loop_count >= 5:
+                        answer = "I've gathered information from the tools. Here's what I found from the tool calls above."
+                        print(f"\nAgent: {answer}")
+                        history.append({"role": "assistant", "content": answer})
+                        break
+     
+                    tname = decision.get("action")
+                    args = decision.get("args", {})
+                   
+                    if not tname:
+                        history.append({"role": "assistant", "content": f"(no action specified in {decision})"})
+                        continue
+                       
+                    if tname not in tool_index:
+                        history.append({"role": "assistant", "content": f"(unknown tool '{tname}'. Available: {list(tool_index.keys())})"})
+                        continue
+     
+                    try:
+                        result = await session.call_tool(tname, args)
+                        payload = result.content[0].text if result.content else json.dumps(result.model_dump())
+                        tool_response = f"[tool:{tname}] {payload}"
+                        print(f"\n[Tool called: {tname}]")
+                        history.append({"role": "assistant", "content": tool_response})
+                    except Exception as e:
+                        error_msg = f"[tool error:{tname}] {str(e)}"
+                        history.append({"role": "assistant", "content": error_msg})
+                        print(f"\n{error_msg}")
+                    
+                    # After single tool call, ask LLM for final answer
+                    history.append({"role": "user", "content": f"Based on the tool result above, respond to the original query: '{original_query}'"})
+                    final_decision = llm_json(history)
+                    print(f"\n[DEBUG] Final LLM decision: {final_decision}")
+                    if isinstance(final_decision, dict) and final_decision.get("action") == "final":
+                        answer = final_decision.get("answer", "")
+                        print(f"\nAgent: {answer}")
+                        history.append({"role": "assistant", "content": answer})
+                    else:
+                        print(f"\nAgent: I've processed the tool result above.")
+                        history.append({"role": "assistant", "content": "I've processed the tool result above."})
+                    break
                    
     finally:
         await exit_stack.aclose()
